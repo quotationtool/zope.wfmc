@@ -23,7 +23,8 @@ import xml.sax.handler
 
 import zope.wfmc.process
 
-xpdlns = "http://www.wfmc.org/2002/XPDL1.0"
+xpdl10ns = "http://www.wfmc.org/2002/XPDL1.0"
+xpdl21ns = "http://www.wfmc.org/2008/XPDL2.1"
 
 
 class HandlerError(Exception):
@@ -122,7 +123,8 @@ class XPDLHandler(xml.sax.handler.ContentHandler):
         package.id = attrs[(None, 'Id')]
         package.__name__ = attrs.get((None, 'Name'))
         return package
-    start_handlers[(xpdlns, 'Package')] = Package
+    start_handlers[(xpdl10ns, 'Package')] = Package
+    start_handlers[(xpdl21ns, 'Package')] = Package
 
     def WorkflowProcess(self, attrs):
         id = attrs[(None, 'Id')]
@@ -135,7 +137,8 @@ class XPDLHandler(xml.sax.handler.ContentHandler):
 
         self.package[id] = process
         return process
-    start_handlers[(xpdlns, 'WorkflowProcess')] = WorkflowProcess
+    start_handlers[(xpdl10ns, 'WorkflowProcess')] = WorkflowProcess
+    start_handlers[(xpdl21ns, 'WorkflowProcess')] = WorkflowProcess
 
     paramter_types = {
         'IN': zope.wfmc.process.InputParameter,
@@ -148,7 +151,8 @@ class XPDLHandler(xml.sax.handler.ContentHandler):
         mode = attrs.get((None, 'Mode'), 'IN')
         id = attrs[(None, 'Id')]
         self.stack[-1].defineParameters(*[self.paramter_types[mode](id)])
-    start_handlers[(xpdlns, 'FormalParameter')] = FormalParameter
+    start_handlers[(xpdl10ns, 'FormalParameter')] = FormalParameter
+    start_handlers[(xpdl21ns, 'FormalParameter')] = FormalParameter
     
     def Participant(self, attrs):
         id = attrs[(None, 'Id')]
@@ -156,7 +160,8 @@ class XPDLHandler(xml.sax.handler.ContentHandler):
         participant = self.ParticipantFactory(name)
         self.stack[-1].defineParticipants(**{str(id): participant})
         return participant
-    start_handlers[(xpdlns, 'Participant')] = Participant
+    start_handlers[(xpdl10ns, 'Participant')] = Participant
+    start_handlers[(xpdl21ns, 'Participant')] = Participant
 
     def Application(self, attrs):
         id = attrs[(None, 'Id')]
@@ -166,23 +171,27 @@ class XPDLHandler(xml.sax.handler.ContentHandler):
         if name:
             app.__name__ = name
         return app
-    start_handlers[(xpdlns, 'Application')] = Application
+    start_handlers[(xpdl10ns, 'Application')] = Application
+    start_handlers[(xpdl21ns, 'Application')] = Application
     
     def application(self, app):
         self.stack[-1].defineApplications(**{str(app.id): app})
-    end_handlers[(xpdlns, 'Application')] = application
+    end_handlers[(xpdl10ns, 'Application')] = application
+    end_handlers[(xpdl21ns, 'Application')] = application
 
     def description(self, ignored):
         if self.stack[-1] is not None:
             self.stack[-1].description = self.text
-    end_handlers[(xpdlns, 'Description')] = description
+    end_handlers[(xpdl10ns, 'Description')] = description
+    end_handlers[(xpdl21ns, 'Description')] = description
 
     ######################################################################
     # Activity definitions
 
     def ActivitySet(self, attrs):
         raise NotImplementedError("ActivitySet")
-    end_handlers[(xpdlns, 'ActivitySet')] = ActivitySet
+    end_handlers[(xpdl10ns, 'ActivitySet')] = ActivitySet
+    end_handlers[(xpdl21ns, 'ActivitySet')] = ActivitySet
 
     def Activity(self, attrs):
         id = attrs[(None, 'Id')]
@@ -191,40 +200,60 @@ class XPDLHandler(xml.sax.handler.ContentHandler):
         activity.id = id
         self.stack[-1].defineActivities(**{str(id): activity})
         return activity
-    start_handlers[(xpdlns, 'Activity')] = Activity
+    start_handlers[(xpdl10ns, 'Activity')] = Activity
+    start_handlers[(xpdl21ns, 'Activity')] = Activity
 
     def Tool(self, attrs):
+        """ Tools were removed from the spec in XPDL 2.1"""
         return Tool(attrs[(None, 'Id')])
-    start_handlers[(xpdlns, 'Tool')] = Tool
+    start_handlers[(xpdl10ns, 'Tool')] = Tool
 
     def tool(self, tool):
         self.stack[-1].addApplication(tool.id, tool.parameters)
-    end_handlers[(xpdlns, 'Tool')] = tool
+    end_handlers[(xpdl10ns, 'Tool')] = tool
+
+    def TaskApplication(self, attrs):
+        """ In XPDL 2.1 Task/TaskApplication is used instead of Tools."""
+        return TaskApplication(attrs[(None, 'Id')])
+    start_handlers[(xpdl21ns, 'TaskApplication')] = TaskApplication
+    
+    def taskapplication(self, taskapplication):
+        self.stack[-1].addApplication(taskapplication.id, taskapplication.parameters)
+    end_handlers[(xpdl21ns, 'TaskApplication')] = taskapplication
 
     def actualparameter(self, ignored):
         self.stack[-1].parameters += (self.text, )
-    end_handlers[(xpdlns, 'ActualParameter')] = actualparameter
+    end_handlers[(xpdl10ns, 'ActualParameter')] = actualparameter
+    end_handlers[(xpdl21ns, 'ActualParameter')] = actualparameter
 
     def performer(self, ignored):
-        self.stack[-1].definePerformer(self.text.strip())
-    end_handlers[(xpdlns, 'Performer')] = performer
+        # A performer may be defined in several contexts (lanes,
+        # activities etc.) but we only use it in activities.
+        if isinstance(self.stack[-1], self.ActivityDefinitionFactory):
+            self.stack[-1].definePerformer(self.text.strip())
+    end_handlers[(xpdl10ns, 'Performer')] = performer
+    end_handlers[(xpdl21ns, 'Performer')] = performer
 
     def Join(self, attrs):
         Type = attrs.get((None, 'Type'))
         if Type == u'AND':
             self.stack[-1].andJoin(True)
-    start_handlers[(xpdlns, 'Join')] = Join
+    start_handlers[(xpdl10ns, 'Join')] = Join
+    start_handlers[(xpdl21ns, 'Join')] = Join
 
     def Split(self, attrs):
+        # In 2.1 'Parallel' is used for 'AND'
         Type = attrs.get((None, 'Type'))
-        if Type == u'AND':
+        if Type == u'AND' or Type == u'Parallel':
             self.stack[-1].andSplit(True)
-    start_handlers[(xpdlns, 'Split')] = Split
+    start_handlers[(xpdl10ns, 'Split')] = Split
+    start_handlers[(xpdl21ns, 'Split')] = Split
 
     def TransitionRef(self, attrs):
         Id = attrs.get((None, 'Id'))
         self.stack[-1].addOutgoing(Id)
-    start_handlers[(xpdlns, 'TransitionRef')] = TransitionRef
+    start_handlers[(xpdl10ns, 'TransitionRef')] = TransitionRef
+    start_handlers[(xpdl21ns, 'TransitionRef')] = TransitionRef
         
 
     # Activity definitions
@@ -239,11 +268,13 @@ class XPDLHandler(xml.sax.handler.ContentHandler):
         transition.id = id
         transition.__name__ = name
         return transition
-    start_handlers[(xpdlns, 'Transition')] = Transition
+    start_handlers[(xpdl10ns, 'Transition')] = Transition
+    start_handlers[(xpdl21ns, 'Transition')] = Transition
     
     def transition(self, transition):
         self.stack[-1].defineTransitions(transition)
-    end_handlers[(xpdlns, 'Transition')] = transition
+    end_handlers[(xpdl10ns, 'Transition')] = transition
+    end_handlers[(xpdl21ns, 'Transition')] = transition
     
     def condition(self, ignored):
         assert isinstance(self.stack[-1],
@@ -251,11 +282,19 @@ class XPDLHandler(xml.sax.handler.ContentHandler):
 
         text = self.text
         self.stack[-1].condition = TextCondition("(%s)" % text)
-    end_handlers[(xpdlns, 'Condition')] = condition
+    end_handlers[(xpdl10ns, 'Condition')] = condition
+    end_handlers[(xpdl21ns, 'Condition')] = condition
 
 
 class Tool:
 
+    def __init__(self, id):
+        self.id = id
+
+    parameters = ()
+
+class TaskApplication:
+    
     def __init__(self, id):
         self.id = id
 
